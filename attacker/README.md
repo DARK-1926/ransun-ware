@@ -1,39 +1,35 @@
-# Attacker Environment Setup
+# Attacker Workspace
 
-## 1. Prerequisites
+This directory contains the Command and Control (C2) server for the Cerberus ransomware simulation.
 
-Install the required packages:
+## Components
 
-```bash
-pip3 install -r requirements.txt
-```
+- `c2_server.py`: The C2 server written in Flask. It handles victim check-ins, RSA key generation, and the dashboard.
+- `requirements.txt`: Python dependencies for the server.
 
-## 2. Generate Master Keys
+## Setup & Running
 
-You must generate the RSA key pair before running the server. Run these commands in this directory:
+1.  **Install Dependencies**:
 
-```bash
-# Generate private key
-openssl genpkey -algorithm RSA -out private_key.pem -pkeyopt rsa_keygen_bits:4096
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-# Extract public key (You will need to COPY this to the victim payload)
-openssl rsa -pubout -in private_key.pem -out public_key.pem
+2.  **Start the Server**:
 
-# Secure the private key
-chmod 600 private_key.pem
-```
+    ```bash
+    python c2_server.py
+    ```
 
-## 3. Configure Dead Drop
+3.  **Get the Public Key**:
+    When the server starts, it will print an RSA Public Key to the console. **You must copy this key** and paste it into the `ransomware.py` script in the `victim/` directory.
 
-1. Go to [Pastebin.com](https://pastebin.com).
-2. Create a new paste with the text "Waiting for token...".
-3. Copy the **RAW** URL (e.g., `https://pastebin.com/raw/abc123XYZ`).
-4. Edit `c2_server.py` and update `DEAD_DROP_URL` with this link.
+4.  **Access Dashboard**:
+    Open `http://localhost:5000` in your browser to view victims and manage keys.
 
-## 4. Run the Server
+## Features
 
-```bash
-python3 c2_server.py
-```
-
-Access the panel at `http://127.0.0.1:5000`.
+- **Victim Dashboard**: View status of all infected clients.
+- **RSA Key Generation**: Generates a unique key pair on first run.
+- **Simulated Payment**: "Mark as Paid" button to release the decryption key.
+- **Heartbeat Handling**: Responds to client polling with status updates.

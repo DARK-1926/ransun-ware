@@ -1,37 +1,34 @@
-# Victim Environment Setup
+# Victim Workspace
 
-> **⚠️ WARNING**: Run this ONLY in an isolated Virtual Machine!
+This directory contains the ransomware payload simulation.
 
-## 1. Prerequisites
+## Components
 
-Install the required packages:
+- `ransomware.py`: The main ransomware script. It performs encryption, displays the lock screen (Kiosk Mode), and communicates with the C2 server.
 
-```bash
-pip3 install cryptography requests tk
-# Note: 'tk' (Tkinter) is usually installed by default on Python, but you may need 'python3-tk' on Linux.
-sudo apt install python3-tk
-```
+## Setup & Running
 
-## 2. Configuration
+1.  **Prerequisites**:
+    - Ensure the C2 server is running.
+    - Python 3 installed on the victim machine.
+    - Install dependencies: `pip install requests cryptography` (or use the requirements from the root).
 
-1. Open `ransomware.py`.
-2. Find the `ATTACKER_PUBLIC_KEY` section.
-3. Paste the content of the `public_key.pem` file (generated on the Attacker machine) between the triple quotes.
-4. Ensure `C2_SERVER_URL` points to your Attacker VM's IP address (e.g., `http://192.168.1.5:5000`).
+2.  **Configuration**:
+    - Open `ransomware.py`.
+    - Update the `ATTACKER_PUBLIC_KEY` variable with the key displayed by the C2 server.
+    - (Optional) Update `C2_SERVER_URL` if the server is not on `localhost:5000`.
 
-## 3. Creating Dummy Data
+3.  **Prepare Test Data**:
+    - The script targets `~/test_data` by default. Create this folder and add some dummy files (`.txt`, `.jpg`, `.docx`, etc.).
 
-Create a directory to test the encryption:
+4.  **Execute**:
+    ```bash
+    python ransomware.py
+    ```
 
-```bash
-mkdir ~/test_data
-echo "Secret Data" > ~/test_data/file1.txt
-```
+## Features
 
-## 4. Run the Simulation
-
-```bash
-python3 ransomware.py
-```
-
-The script will encrypt the files in `~/test_data` and display the ransom note.
+- **Kiosk Mode**: Fullscreen, unclosable window.
+- **File Encryption**: Encrypts target file types using AES-GCM.
+- **Heartbeat Polling**: Automatically checks for the decryption key every 30 seconds.
+- **Auto-Decryption**: Automatically decrypts files once the key is received.

