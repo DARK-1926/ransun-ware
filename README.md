@@ -25,7 +25,39 @@
 ## 🏗️ Technical Architecture
 
 ### 1. The Infection Lifecycle
-![Attack Lifecycle Flowchart](https://i.ibb.co/3ykJ8bX/flowchart.jpg)
+```mermaid
+graph TD
+    %% Nodes
+    A[<b>1. Attacker Setup</b><br>C2 Server Launch<br><i>Attacker VM runs Flask C2 & Generates Keys</i>]
+    B[<b>2. Installer Creation</b><br>Payload Build<br><i>Attacker builds executable with C2 IP & Fallback</i>]
+    C[<b>3. Malware Execution</b><br>Infection<br><i>Victim runs executable, triggering fake installer</i>]
+    D[<b>4. Malware Installation</b><br>Persistence<br><i>Dropper installs malware to autostart on victim machine</i>]
+    E[<b>5. Reconnaissance</b><br>File Scanning<br><i>Malware scans Home directory & sends file list to C2</i>]
+    F[<b>6. C2 Dashboard</b><br>Target Selection<br><i>Attacker selects folders to encrypt on C2 dashboard</i>]
+    G[<b>7. Encryption</b><br>File Locking<br><i>Victim receives command & files are locked (AES-256)</i>]
+    H[<b>8. Keystroke Logging</b><br>Extortion<br><i>Malware logs keystrokes & displays countdown timer</i>]
+    I[<b>9. Doomsday Feature</b><br>Timer Control<br><i>Attacker can reduce time to create panic</i>]
+    J[<b>10. Decryption</b><br>Recovery<br><i>Victim pays, C2 releases key, files are decrypted</i>]
+
+    %% Styles
+    classDef red fill:#e85d5d,stroke:#333,stroke-width:2px,color:white;
+    classDef orange fill:#f4a261,stroke:#333,stroke-width:2px,color:white;
+    classDef yellow fill:#e9c46a,stroke:#333,stroke-width:2px,color:black;
+    classDef green fill:#2a9d8f,stroke:#333,stroke-width:2px,color:white;
+    classDef blue fill:#457b9d,stroke:#333,stroke-width:2px,color:white;
+    classDef purple fill:#9d4edd,stroke:#333,stroke-width:2px,color:white;
+
+    %% Connections
+    A:::red --> B:::orange
+    B --> C:::yellow
+    C --> D:::green
+    D --> E:::green
+    E --> F:::blue
+    F --> G:::blue
+    G --> H:::purple
+    H --> I:::purple
+    I --> J:::orange
+```
 
 ### 2. Core Components
 
